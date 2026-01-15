@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceLink - Anonymous Voice Chat</title>
+    <meta name="description"
+        content="Connect with strangers through anonymous voice calls. No video, no signup, just conversation.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Animated background -->
+        <div class="animated-bg">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+        </div>
+
+        <!-- Landing Screen -->
+        <div id="landing-screen" class="screen active">
+            <div class="glass-card landing-card">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </div>
+                    <h1>VoiceLink</h1>
+                </div>
+                <p class="tagline">Connect with strangers through voice. Anonymous. Instant. Real.</p>
+
+                <div class="interests-section">
+                    <label for="interests-input">Add interests (optional)</label>
+                    <div class="interests-input-wrapper">
+                        <input type="text" id="interests-input" placeholder="Type an interest and press Enter">
+                    </div>
+                    <div id="interests-tags" class="interests-tags"></div>
+                    <p class="interests-hint">Adding interests helps match you with like-minded people</p>
+                </div>
+
+                <button id="start-btn" class="btn-primary">
+                    <span class="btn-text">Start Talking</span>
+                    <span class="btn-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                    </span>
+                </button>
+
+                <p class="disclaimer">By starting, you agree to be respectful. We don't tolerate harassment.</p>
+            </div>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="waiting-screen" class="screen">
+            <div class="glass-card waiting-card">
+                <div class="waiting-animation">
+                    <div class="pulse-ring"></div>
+                    <div class="pulse-ring delay-1"></div>
+                    <div class="pulse-ring delay-2"></div>
+                    <div class="mic-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </div>
+                </div>
+                <h2>Finding someone to talk to...</h2>
+                <p class="waiting-text">This usually takes a few seconds</p>
+                <button id="cancel-btn" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+
+        <!-- In-Call Screen -->
+        <div id="call-screen" class="screen">
+            <div class="call-container">
+                <div class="call-header">
+                    <div class="call-status">
+                        <span class="live-indicator"></span>
+                        <span>Connected</span>
+                    </div>
+                    <div class="timer-display" id="timer-display">5:00</div>
+                </div>
+
+                <div class="call-visual">
+                    <div class="audio-visualizer">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                    <p class="speaking-hint">Stranger is listening...</p>
+                </div>
+
+                <div class="extend-banner" id="extend-banner">
+                    <p>Partner wants to extend the call!</p>
+                    <button id="accept-extend-btn" class="btn-small">Accept +5 min</button>
+                </div>
+
+                <div class="call-controls">
+                    <button id="mute-btn" class="control-btn" title="Mute">
+                        <svg class="icon-unmuted" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                        <svg class="icon-muted hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+                            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </button>
+
+                    <button id="extend-btn" class="control-btn" title="Extend Time">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                        <span class="btn-label">+5 min</span>
+                    </button>
+
+                    <button id="skip-btn" class="control-btn control-skip" title="Skip to next person">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 4 15 12 5 20 5 4" />
+                            <line x1="19" y1="5" x2="19" y2="19" />
+                        </svg>
+                        <span class="btn-label">Skip</span>
+                    </button>
+
+                    <button id="report-btn" class="control-btn control-danger" title="Report user">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                            <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
+                    </button>
+
+                    <button id="end-btn" class="control-btn control-end" title="End call">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path
+                                d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" />
+                            <line x1="1" y1="1" x2="23" y2="23" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Report Modal -->
+        <div id="report-modal" class="modal">
+            <div class="modal-content glass-card">
+                <h3>Report User</h3>
+                <p>Are you sure you want to report this user for inappropriate behavior?</p>
+                <p class="modal-hint">They will be blocked from matching with you again.</p>
+                <div class="modal-actions">
+                    <button id="report-cancel-btn" class="btn-secondary">Cancel</button>
+                    <button id="report-confirm-btn" class="btn-danger">Report & Skip</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast notifications -->
+        <div id="toast-container"></div>
+    </div>
+
+    <!-- Audio element for remote stream -->
+    <audio id="remote-audio" autoplay></audio>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
