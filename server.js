@@ -18,7 +18,16 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'voicelink123';
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ============= ANALYTICS TRACKING =============
+// ============= MATCHING SYSTEM (Variables) =============
+
+// Queue for users waiting to be matched
+let waitingQueue = [];
+
+// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp, startTime: timestamp } }
+let activeRooms = {};
+
+// User data: { socketId: { interests: [], roomId: null, blockedUsers: [], reportCount: 0 } }
+let userData = {};
 
 const analytics = {
     totalCallsToday: 0,
@@ -264,16 +273,7 @@ app.get('/admin', (req, res) => {
     `);
 });
 
-// ============= MATCHING SYSTEM =============
-
-// Queue for users waiting to be matched
-let waitingQueue = [];
-
-// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp, startTime: timestamp } }
-let activeRooms = {};
-
-// User data: { socketId: { interests: [], roomId: null, blockedUsers: [], reportCount: 0 } }
-let userData = {};
+// ============= MATCHING SYSTEM (Functions) =============
 
 // Generate unique room ID
 function generateRoomId() {
