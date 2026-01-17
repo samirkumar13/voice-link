@@ -13,267 +13,20 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'voicelink123';
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ============= MATCHING SYSTEM (Variables) =============
+// ============= MATCHING SYSTEM =============
 
 // Queue for users waiting to be matched
 let waitingQueue = [];
 
-// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp, startTime: timestamp } }
+// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp } }
 let activeRooms = {};
 
 // User data: { socketId: { interests: [], roomId: null, blockedUsers: [], reportCount: 0 } }
 let userData = {};
-
-const analytics = {
-    totalCallsToday: 0,
-    totalCallsAllTime: 0,
-    totalSkipsToday: 0,
-    totalReportsToday: 0,
-    totalExtendsToday: 0,
-    callDurations: [], // Store last 100 call durations for average
-    peakOnlineUsers: 0,
-    serverStartTime: Date.now(),
-    lastResetDate: new Date().toDateString()
-};
-
-// Reset daily stats at midnight
-function resetDailyStats() {
-    const today = new Date().toDateString();
-    if (analytics.lastResetDate !== today) {
-        analytics.totalCallsToday = 0;
-        analytics.totalSkipsToday = 0;
-        analytics.totalReportsToday = 0;
-        analytics.totalExtendsToday = 0;
-        analytics.lastResetDate = today;
-    }
-}
-
-// Calculate average call duration
-function getAvgCallDuration() {
-    if (analytics.callDurations.length === 0) return 0;
-    const sum = analytics.callDurations.reduce((a, b) => a + b, 0);
-    return Math.round(sum / analytics.callDurations.length);
-}
-
-// Format seconds to mm:ss
-function formatDuration(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}m ${secs}s`;
-}
-
-// ============= ADMIN DASHBOARD ROUTE =============
-
-app.get('/admin', (req, res) => {
-    const password = req.query.key;
-
-    if (password !== ADMIN_PASSWORD) {
-        return res.status(401).send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>VoiceLink Admin</title>
-                <style>
-                    body { font-family: Arial; background: #0a0a0f; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-                    .login { background: rgba(20,20,35,0.9); padding: 40px; border-radius: 16px; text-align: center; }
-                    input { padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #333; background: #1a1a2e; color: #fff; width: 200px; }
-                    button { padding: 12px 24px; background: #6366f1; border: none; border-radius: 8px; color: #fff; cursor: pointer; }
-                </style>
-            </head>
-            <body>
-                <div class="login">
-                    <h2>🔐 Admin Login</h2>
-                    <form method="GET">
-                        <input type="password" name="key" placeholder="Enter password" required><br>
-                        <button type="submit">Login</button>
-                    </form>
-                </div>
-            </body>
-            </html>
-        `);
-    }
-
-    resetDailyStats();
-
-    const onlineUsers = Object.keys(userData).length;
-    const usersInQueue = waitingQueue.length;
-    const activeCalls = Object.keys(activeRooms).length;
-    const skipRate = analytics.totalCallsToday > 0
-        ? Math.round((analytics.totalSkipsToday / analytics.totalCallsToday) * 100)
-        : 0;
-    const extendRate = analytics.totalCallsToday > 0
-        ? Math.round((analytics.totalExtendsToday / analytics.totalCallsToday) * 100)
-        : 0;
-
-    // Update peak users
-    if (onlineUsers > analytics.peakOnlineUsers) {
-        analytics.peakOnlineUsers = onlineUsers;
-    }
-
-    const uptimeSeconds = Math.floor((Date.now() - analytics.serverStartTime) / 1000);
-    const uptimeHours = Math.floor(uptimeSeconds / 3600);
-    const uptimeMins = Math.floor((uptimeSeconds % 3600) / 60);
-
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>VoiceLink Admin Dashboard</title>
-            <meta http-equiv="refresh" content="10">
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { 
-                    font-family: 'Segoe UI', Arial, sans-serif; 
-                    background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%); 
-                    color: #fff; 
-                    min-height: 100vh;
-                    padding: 40px;
-                }
-                .header { 
-                    text-align: center; 
-                    margin-bottom: 40px;
-                }
-                .header h1 { 
-                    font-size: 2rem; 
-                    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                }
-                .header p { color: #888; margin-top: 8px; }
-                .grid { 
-                    display: grid; 
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-                    gap: 20px; 
-                    max-width: 1200px; 
-                    margin: 0 auto;
-                }
-                .card { 
-                    background: rgba(30, 30, 50, 0.8); 
-                    border-radius: 16px; 
-                    padding: 24px;
-                    border: 1px solid rgba(255,255,255,0.1);
-                }
-                .card-label { 
-                    font-size: 0.875rem; 
-                    color: #888; 
-                    text-transform: uppercase; 
-                    letter-spacing: 1px;
-                }
-                .card-value { 
-                    font-size: 2.5rem; 
-                    font-weight: 700; 
-                    margin-top: 8px;
-                }
-                .card-value.green { color: #22c55e; }
-                .card-value.blue { color: #6366f1; }
-                .card-value.orange { color: #f97316; }
-                .card-value.red { color: #ef4444; }
-                .card-value.purple { color: #a855f7; }
-                .section-title { 
-                    font-size: 1.25rem; 
-                    margin: 40px 0 20px; 
-                    color: #888;
-                    max-width: 1200px;
-                    margin-left: auto;
-                    margin-right: auto;
-                }
-                .footer { 
-                    text-align: center; 
-                    margin-top: 40px; 
-                    color: #555; 
-                    font-size: 0.875rem;
-                }
-                .live-dot {
-                    display: inline-block;
-                    width: 10px;
-                    height: 10px;
-                    background: #22c55e;
-                    border-radius: 50%;
-                    margin-right: 8px;
-                    animation: pulse 1.5s infinite;
-                }
-                @keyframes pulse {
-                    0%, 100% { opacity: 1; }
-                    50% { opacity: 0.5; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <h1>📊 VoiceLink Admin Dashboard</h1>
-                <p><span class="live-dot"></span>Live - Auto-refreshes every 10 seconds</p>
-            </div>
-            
-            <div class="section-title">🟢 Real-Time Status</div>
-            <div class="grid">
-                <div class="card">
-                    <div class="card-label">Online Users</div>
-                    <div class="card-value green">${onlineUsers}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">In Queue</div>
-                    <div class="card-value blue">${usersInQueue}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Active Calls</div>
-                    <div class="card-value purple">${activeCalls}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Peak Users Today</div>
-                    <div class="card-value orange">${analytics.peakOnlineUsers}</div>
-                </div>
-            </div>
-            
-            <div class="section-title">📈 Today's Stats</div>
-            <div class="grid">
-                <div class="card">
-                    <div class="card-label">Calls Today</div>
-                    <div class="card-value blue">${analytics.totalCallsToday}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Avg Call Duration</div>
-                    <div class="card-value green">${formatDuration(getAvgCallDuration())}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Skip Rate</div>
-                    <div class="card-value orange">${skipRate}%</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Extend Rate</div>
-                    <div class="card-value purple">${extendRate}%</div>
-                </div>
-            </div>
-            
-            <div class="section-title">🚩 Moderation</div>
-            <div class="grid">
-                <div class="card">
-                    <div class="card-label">Reports Today</div>
-                    <div class="card-value red">${analytics.totalReportsToday}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Total Calls (All Time)</div>
-                    <div class="card-value blue">${analytics.totalCallsAllTime}</div>
-                </div>
-                <div class="card">
-                    <div class="card-label">Server Uptime</div>
-                    <div class="card-value green">${uptimeHours}h ${uptimeMins}m</div>
-                </div>
-            </div>
-            
-            <div class="footer">
-                VoiceLink Admin Dashboard • Last updated: ${new Date().toLocaleTimeString()}
-            </div>
-        </body>
-        </html>
-    `);
-});
-
-// ============= MATCHING SYSTEM (Functions) =============
 
 // Generate unique room ID
 function generateRoomId() {
@@ -337,17 +90,12 @@ function createRoom(socket1, socket2) {
     // Remove from waiting queue
     waitingQueue = waitingQueue.filter(s => s.id !== socket1.id && s.id !== socket2.id);
 
-    // Setup room with analytics tracking
+    // Setup room
     activeRooms[roomId] = {
         users: [socket1.id, socket2.id],
         timerEnd: Date.now() + 5 * 60 * 1000, // 5 minutes
-        extendRequests: new Set(),
-        startTime: Date.now() // For duration tracking
+        extendRequests: new Set()
     };
-
-    // Update analytics
-    analytics.totalCallsToday++;
-    analytics.totalCallsAllTime++;
 
     // Update user data
     userData[socket1.id].roomId = roomId;
@@ -373,16 +121,6 @@ function leaveRoom(socket, reason = 'left') {
     const room = activeRooms[roomId];
 
     if (room) {
-        // Track call duration for analytics
-        if (room.startTime) {
-            const durationSeconds = Math.floor((Date.now() - room.startTime) / 1000);
-            analytics.callDurations.push(durationSeconds);
-            // Keep only last 100 durations
-            if (analytics.callDurations.length > 100) {
-                analytics.callDurations.shift();
-            }
-        }
-
         // Notify other user
         socket.to(roomId).emit('partnerLeft', { reason });
 
@@ -455,7 +193,6 @@ io.on('connection', (socket) => {
     // User wants to skip current partner
     socket.on('skip', () => {
         leaveRoom(socket, 'skipped');
-        analytics.totalSkipsToday++; // Track skip
 
         // Re-add to queue
         if (!waitingQueue.find(s => s.id === socket.id)) {
@@ -486,7 +223,6 @@ io.on('connection', (socket) => {
             // Extend timer by 5 minutes
             room.timerEnd += 5 * 60 * 1000;
             room.extendRequests.clear();
-            analytics.totalExtendsToday++; // Track extend
 
             io.to(user.roomId).emit('timerExtended', { timerEnd: room.timerEnd });
             console.log(`Timer extended in room ${user.roomId}`);
@@ -507,7 +243,6 @@ io.on('connection', (socket) => {
         const reportedUserId = room.users.find(id => id !== socket.id);
         if (reportedUserId && userData[reportedUserId]) {
             userData[reportedUserId].reportCount++;
-            analytics.totalReportsToday++; // Track report
             console.log(`User ${reportedUserId} reported. Total reports: ${userData[reportedUserId].reportCount}`);
 
             // Block this user for current session
@@ -535,9 +270,6 @@ io.on('connection', (socket) => {
 
 // ============= SERVER START =============
 
-const HOST = '0.0.0.0';
-
-server.listen(PORT, HOST, () => {
-    console.log(`🎙️  VoiceLink server running on http://${HOST}:${PORT}`);
-    console.log(`📊 Admin dashboard available at /admin`);
+server.listen(PORT, () => {
+    console.log(`🎙️  VoiceLink server running on http://localhost:${PORT}`);
 });
