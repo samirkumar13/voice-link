@@ -535,7 +535,9 @@ io.on('connection', (socket) => {
 
 // ============= SERVER START =============
 
-server.listen(PORT, () => {
-    console.log(`🎙️  VoiceLink server running on http://localhost:${PORT}`);
-    console.log(`📊 Admin dashboard: http://localhost:${PORT}/admin?key=${ADMIN_PASSWORD}`);
+const HOST = '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
+    console.log(`🎙️  VoiceLink server running on http://${HOST}:${PORT}`);
+    console.log(`📊 Admin dashboard available at /admin`);
 });
