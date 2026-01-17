@@ -13,27 +13,170 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'voicelink123';
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ============= MATCHING SYSTEM =============
+// ============= DATA STORES =============
 
 // Queue for users waiting to be matched
 let waitingQueue = [];
 
-// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp } }
+// Active rooms: { roomId: { users: [socketId1, socketId2], timerEnd: timestamp, startTime: timestamp } }
 let activeRooms = {};
 
 // User data: { socketId: { interests: [], roomId: null, blockedUsers: [], reportCount: 0 } }
 let userData = {};
 
-// Generate unique room ID
+// ============= ANALYTICS =============
+
+const analytics = {
+    totalCallsToday: 0,
+    totalCallsAllTime: 0,
+    totalSkipsToday: 0,
+    totalReportsToday: 0,
+    totalExtendsToday: 0,
+    callDurations: [],
+    peakOnlineUsers: 0,
+    serverStartTime: Date.now(),
+    lastResetDate: new Date().toDateString()
+};
+
+function resetDailyStats() {
+    const today = new Date().toDateString();
+    if (analytics.lastResetDate !== today) {
+        analytics.totalCallsToday = 0;
+        analytics.totalSkipsToday = 0;
+        analytics.totalReportsToday = 0;
+        analytics.totalExtendsToday = 0;
+        analytics.lastResetDate = today;
+    }
+}
+
+function getAvgCallDuration() {
+    if (analytics.callDurations.length === 0) return 0;
+    const sum = analytics.callDurations.reduce((a, b) => a + b, 0);
+    return Math.round(sum / analytics.callDurations.length);
+}
+
+function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+}
+
+// ============= ADMIN DASHBOARD =============
+
+app.get('/admin', (req, res) => {
+    const password = req.query.key;
+
+    if (password !== ADMIN_PASSWORD) {
+        return res.status(401).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>VoiceLink Admin</title>
+                <style>
+                    body { font-family: Arial; background: #0a0a0f; color: #fff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                    .login { background: rgba(20,20,35,0.9); padding: 40px; border-radius: 16px; text-align: center; }
+                    input { padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #333; background: #1a1a2e; color: #fff; width: 200px; }
+                    button { padding: 12px 24px; background: #6366f1; border: none; border-radius: 8px; color: #fff; cursor: pointer; }
+                </style>
+            </head>
+            <body>
+                <div class="login">
+                    <h2>🔐 Admin Login</h2>
+                    <form method="GET">
+                        <input type="password" name="key" placeholder="Enter password" required><br>
+                        <button type="submit">Login</button>
+                    </form>
+                </div>
+            </body>
+            </html>
+        `);
+    }
+
+    resetDailyStats();
+
+    const onlineUsers = Object.keys(userData).length;
+    const usersInQueue = waitingQueue.length;
+    const activeCalls = Object.keys(activeRooms).length;
+    const skipRate = analytics.totalCallsToday > 0 ? Math.round((analytics.totalSkipsToday / analytics.totalCallsToday) * 100) : 0;
+    const extendRate = analytics.totalCallsToday > 0 ? Math.round((analytics.totalExtendsToday / analytics.totalCallsToday) * 100) : 0;
+
+    if (onlineUsers > analytics.peakOnlineUsers) {
+        analytics.peakOnlineUsers = onlineUsers;
+    }
+
+    const uptimeSeconds = Math.floor((Date.now() - analytics.serverStartTime) / 1000);
+    const uptimeHours = Math.floor(uptimeSeconds / 3600);
+    const uptimeMins = Math.floor((uptimeSeconds % 3600) / 60);
+
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>VoiceLink Admin</title>
+            <meta http-equiv="refresh" content="10">
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: 'Segoe UI', Arial; background: linear-gradient(135deg, #0a0a0f, #1a1a2e); color: #fff; min-height: 100vh; padding: 40px; }
+                .header { text-align: center; margin-bottom: 40px; }
+                .header h1 { font-size: 2rem; background: linear-gradient(135deg, #6366f1, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+                .header p { color: #888; margin-top: 8px; }
+                .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; max-width: 1200px; margin: 0 auto; }
+                .card { background: rgba(30, 30, 50, 0.8); border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.1); }
+                .card-label { font-size: 0.875rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+                .card-value { font-size: 2.5rem; font-weight: 700; margin-top: 8px; }
+                .green { color: #22c55e; } .blue { color: #6366f1; } .orange { color: #f97316; } .red { color: #ef4444; } .purple { color: #a855f7; }
+                .section { font-size: 1.25rem; margin: 40px auto 20px; color: #888; max-width: 1200px; }
+                .footer { text-align: center; margin-top: 40px; color: #555; font-size: 0.875rem; }
+                .live-dot { display: inline-block; width: 10px; height: 10px; background: #22c55e; border-radius: 50%; margin-right: 8px; animation: pulse 1.5s infinite; }
+                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>📊 VoiceLink Admin Dashboard</h1>
+                <p><span class="live-dot"></span>Live - Auto-refreshes every 10 seconds</p>
+            </div>
+            
+            <div class="section">🟢 Real-Time Status</div>
+            <div class="grid">
+                <div class="card"><div class="card-label">Online Users</div><div class="card-value green">${onlineUsers}</div></div>
+                <div class="card"><div class="card-label">In Queue</div><div class="card-value blue">${usersInQueue}</div></div>
+                <div class="card"><div class="card-label">Active Calls</div><div class="card-value purple">${activeCalls}</div></div>
+                <div class="card"><div class="card-label">Peak Users Today</div><div class="card-value orange">${analytics.peakOnlineUsers}</div></div>
+            </div>
+            
+            <div class="section">📈 Today's Stats</div>
+            <div class="grid">
+                <div class="card"><div class="card-label">Calls Today</div><div class="card-value blue">${analytics.totalCallsToday}</div></div>
+                <div class="card"><div class="card-label">Avg Duration</div><div class="card-value green">${formatDuration(getAvgCallDuration())}</div></div>
+                <div class="card"><div class="card-label">Skip Rate</div><div class="card-value orange">${skipRate}%</div></div>
+                <div class="card"><div class="card-label">Extend Rate</div><div class="card-value purple">${extendRate}%</div></div>
+            </div>
+            
+            <div class="section">🚩 Moderation</div>
+            <div class="grid">
+                <div class="card"><div class="card-label">Reports Today</div><div class="card-value red">${analytics.totalReportsToday}</div></div>
+                <div class="card"><div class="card-label">All-Time Calls</div><div class="card-value blue">${analytics.totalCallsAllTime}</div></div>
+                <div class="card"><div class="card-label">Uptime</div><div class="card-value green">${uptimeHours}h ${uptimeMins}m</div></div>
+            </div>
+            
+            <div class="footer">VoiceLink Admin • Updated: ${new Date().toLocaleTimeString()}</div>
+        </body>
+        </html>
+    `);
+});
+
+// ============= MATCHING FUNCTIONS =============
+
 function generateRoomId() {
     return 'room_' + Math.random().toString(36).substring(2, 15);
 }
 
-// Calculate interest match score
 function getInterestScore(interests1, interests2) {
     if (!interests1.length || !interests2.length) return 0;
     const set1 = new Set(interests1.map(i => i.toLowerCase()));
@@ -44,12 +187,10 @@ function getInterestScore(interests1, interests2) {
     return matches;
 }
 
-// Find best match for a user
 function findMatch(socket) {
     const user = userData[socket.id];
     if (!user) return null;
 
-    // Filter out blocked users
     const availableUsers = waitingQueue.filter(s => {
         const otherUser = userData[s.id];
         if (!otherUser) return false;
@@ -61,11 +202,9 @@ function findMatch(socket) {
 
     if (availableUsers.length === 0) return null;
 
-    // If user has interests, try to find best match
     if (user.interests.length > 0) {
         let bestMatch = null;
         let bestScore = -1;
-
         for (const candidate of availableUsers) {
             const candidateData = userData[candidate.id];
             const score = getInterestScore(user.interests, candidateData.interests || []);
@@ -74,45 +213,40 @@ function findMatch(socket) {
                 bestMatch = candidate;
             }
         }
-
-        // Return best match (even if score is 0, at least we tried)
         return bestMatch;
     }
 
-    // Random match - return first available
     return availableUsers[0];
 }
 
-// Create a room for two users
 function createRoom(socket1, socket2) {
     const roomId = generateRoomId();
 
-    // Remove from waiting queue
     waitingQueue = waitingQueue.filter(s => s.id !== socket1.id && s.id !== socket2.id);
 
-    // Setup room
     activeRooms[roomId] = {
         users: [socket1.id, socket2.id],
-        timerEnd: Date.now() + 5 * 60 * 1000, // 5 minutes
-        extendRequests: new Set()
+        timerEnd: Date.now() + 5 * 60 * 1000,
+        extendRequests: new Set(),
+        startTime: Date.now()
     };
 
-    // Update user data
+    // Analytics
+    analytics.totalCallsToday++;
+    analytics.totalCallsAllTime++;
+
     userData[socket1.id].roomId = roomId;
     userData[socket2.id].roomId = roomId;
 
-    // Join socket.io room
     socket1.join(roomId);
     socket2.join(roomId);
 
-    // Notify both users - socket1 creates offer
     socket1.emit('matched', { roomId, isInitiator: true, timerEnd: activeRooms[roomId].timerEnd });
     socket2.emit('matched', { roomId, isInitiator: false, timerEnd: activeRooms[roomId].timerEnd });
 
-    console.log(`Room created: ${roomId} with users ${socket1.id} and ${socket2.id}`);
+    console.log(`Room created: ${roomId}`);
 }
 
-// Leave current room
 function leaveRoom(socket, reason = 'left') {
     const user = userData[socket.id];
     if (!user || !user.roomId) return;
@@ -121,16 +255,20 @@ function leaveRoom(socket, reason = 'left') {
     const room = activeRooms[roomId];
 
     if (room) {
-        // Notify other user
+        // Track duration
+        if (room.startTime) {
+            const duration = Math.floor((Date.now() - room.startTime) / 1000);
+            analytics.callDurations.push(duration);
+            if (analytics.callDurations.length > 100) analytics.callDurations.shift();
+        }
+
         socket.to(roomId).emit('partnerLeft', { reason });
 
-        // Get other user and clean up
         const otherUserId = room.users.find(id => id !== socket.id);
         if (otherUserId && userData[otherUserId]) {
             userData[otherUserId].roomId = null;
         }
 
-        // Cleanup room
         delete activeRooms[roomId];
     }
 
@@ -143,7 +281,6 @@ function leaveRoom(socket, reason = 'left') {
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    // Initialize user data
     userData[socket.id] = {
         interests: [],
         roomId: null,
@@ -151,55 +288,42 @@ io.on('connection', (socket) => {
         reportCount: 0
     };
 
-    // User wants to start matching
     socket.on('startMatching', (data) => {
         const { interests = [] } = data || {};
         userData[socket.id].interests = interests;
 
-        // Add to queue if not already
         if (!waitingQueue.find(s => s.id === socket.id)) {
             waitingQueue.push(socket);
         }
 
-        // Try to find a match
         const match = findMatch(socket);
         if (match) {
             createRoom(socket, match);
         } else {
             socket.emit('waiting');
         }
-
-        console.log(`User ${socket.id} started matching with interests: ${interests.join(', ')}`);
     });
 
-    // WebRTC signaling - offer
     socket.on('offer', (data) => {
-        const { roomId, offer } = data;
-        socket.to(roomId).emit('offer', { offer });
+        socket.to(data.roomId).emit('offer', { offer: data.offer });
     });
 
-    // WebRTC signaling - answer
     socket.on('answer', (data) => {
-        const { roomId, answer } = data;
-        socket.to(roomId).emit('answer', { answer });
+        socket.to(data.roomId).emit('answer', { answer: data.answer });
     });
 
-    // WebRTC signaling - ICE candidate
     socket.on('iceCandidate', (data) => {
-        const { roomId, candidate } = data;
-        socket.to(roomId).emit('iceCandidate', { candidate });
+        socket.to(data.roomId).emit('iceCandidate', { candidate: data.candidate });
     });
 
-    // User wants to skip current partner
     socket.on('skip', () => {
         leaveRoom(socket, 'skipped');
+        analytics.totalSkipsToday++;
 
-        // Re-add to queue
         if (!waitingQueue.find(s => s.id === socket.id)) {
             waitingQueue.push(socket);
         }
 
-        // Try to find new match
         const match = findMatch(socket);
         if (match) {
             createRoom(socket, match);
@@ -208,7 +332,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Timer extend request
     socket.on('requestExtend', () => {
         const user = userData[socket.id];
         if (!user || !user.roomId) return;
@@ -218,22 +341,17 @@ io.on('connection', (socket) => {
 
         room.extendRequests.add(socket.id);
 
-        // Check if both users requested
         if (room.extendRequests.size >= 2) {
-            // Extend timer by 5 minutes
             room.timerEnd += 5 * 60 * 1000;
             room.extendRequests.clear();
-
+            analytics.totalExtendsToday++;
             io.to(user.roomId).emit('timerExtended', { timerEnd: room.timerEnd });
-            console.log(`Timer extended in room ${user.roomId}`);
         } else {
-            // Notify the other user
             socket.to(user.roomId).emit('partnerRequestedExtend');
         }
     });
 
-    // Report user
-    socket.on('report', (data) => {
+    socket.on('report', () => {
         const user = userData[socket.id];
         if (!user || !user.roomId) return;
 
@@ -243,25 +361,20 @@ io.on('connection', (socket) => {
         const reportedUserId = room.users.find(id => id !== socket.id);
         if (reportedUserId && userData[reportedUserId]) {
             userData[reportedUserId].reportCount++;
-            console.log(`User ${reportedUserId} reported. Total reports: ${userData[reportedUserId].reportCount}`);
-
-            // Block this user for current session
+            analytics.totalReportsToday++;
             user.blockedUsers.push(reportedUserId);
         }
 
         socket.emit('reportConfirmed');
     });
 
-    // Stop matching / disconnect
     socket.on('stopMatching', () => {
         leaveRoom(socket, 'stopped');
         waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
     });
 
-    // Handle disconnect
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
-
         leaveRoom(socket, 'disconnected');
         waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
         delete userData[socket.id];
@@ -270,6 +383,7 @@ io.on('connection', (socket) => {
 
 // ============= SERVER START =============
 
-server.listen(PORT, () => {
-    console.log(`🎙️  VoiceLink server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🎙️  VoiceLink running on port ${PORT}`);
+    console.log(`📊 Admin dashboard: /admin`);
 });
