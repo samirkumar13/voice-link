@@ -12,7 +12,7 @@ const io = new Server(server, {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'voicelink123';
 
 // Serve static files
